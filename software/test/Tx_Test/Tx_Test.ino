@@ -17,14 +17,14 @@
 #define RF69_FREQ 915.0
 
 // Where to send packets to!
-#define DEST_ADDRESS   1
+#define DEST_ADDRESS   0
 // change addresses for each client board, any number :)
-#define MY_ADDRESS     0
+#define MY_ADDRESS     1
 
 #define RF69_FREQ 915.0
-#define RFM69_CS 9
+#define RFM69_CS 8
 #define RFM69_INT 3
-#define RFM69_RST 8
+#define RFM69_RST 4
 
 // Singleton instance of the radio driver
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
@@ -69,9 +69,9 @@ void setup()
   rf69.setTxPower(20, true);  // range from 14-20 for power, 2nd arg must be true for 69HCW
 
   // The encryption key has to be the same as the one in the server
-  uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-  rf69.setEncryptionKey(key);
+  // uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+  //                   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  // rf69.setEncryptionKey(key);
   
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -91,7 +91,7 @@ void loop() {
   Serial.print("Sending "); Serial.println(radiopacket);
   
   // Send a message to the DESTINATION!
-  if (rf69_manager.sendtoWait((uint8_t *)radiopacket, strlen(radiopacket), DEST_ADDRESS)) {
+  if (rf69_manager.sendto((uint8_t *)radiopacket, strlen(radiopacket), DEST_ADDRESS)) {
     // Now wait for a reply from the server
     uint8_t len = sizeof(buf);
     uint8_t from;   

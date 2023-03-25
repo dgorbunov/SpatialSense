@@ -18,11 +18,11 @@
 #define RF69_FREQ 915.0
 
 // who am i? (server address)
-#define MY_ADDRESS     1
+#define MY_ADDRESS     0
 
-#define RFM69_CS 9
+#define RFM69_CS 8
 #define RFM69_INT 3
-#define RFM69_RST 8
+#define RFM69_RST 4
 
 // Singleton instance of the radio driver
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
@@ -36,7 +36,8 @@ int16_t packetnum = 0;  // packet counter, we increment per xmission
 void setup() 
 {
   Serial.begin(115200);
-  //while (!Serial) { delay(1); } // wait until serial console is open, remove if not tethered to computer
+  delay(3000);
+  // while (!Serial) { delay(1); } // wait until serial console is open, remove if not tethered to computer
 
   pinMode(LED_BUILTIN, OUTPUT);     
   pinMode(RFM69_RST, OUTPUT);
@@ -67,9 +68,9 @@ void setup()
   rf69.setTxPower(20, true);  // range from 14-20 for power, 2nd arg must be true for 69HCW
 
   // The encryption key has to be the same as the one in the server
-  uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-  rf69.setEncryptionKey(key);
+  // uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+  //                   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  // rf69.setEncryptionKey(key);
   
   pinMode(LED_BUILTIN, OUTPUT);
 

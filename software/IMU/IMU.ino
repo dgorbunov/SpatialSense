@@ -1,31 +1,43 @@
-#include <Arduino.h>
-
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
 
 #include <SPI.h>
 #include <RH_RF69.h>
 #include <RHReliableDatagram.h>
 
-#define HOST_ADDRESS 0
+#define HOST_ADDRESS 4
 
 #define RF69_FREQ 915.0
-#define RFM69_CS 9
+#define RFM69_CS 8
 #define RFM69_INT 3
-#define RFM69_RST 8
+#define RFM69_RST 4
 
-#define ANGLE_DEADZONE 3
-#define ANGLE_OFFSET_X 0
-#define ANGLE_OFFSET_Y 0
-#define MAX_ANGLE 30
+// TO BE ADJUSTED
+#define ANGLE_DEADZONE 4.25
+#define ANGLE_CORRECTION_ROLL 3.50
+#define ANGLE_CORRECTION_PITCH -0.50
 
 #define INVERT false
 
+#define SAMPLERATE_DELAY_MS 30
+
 RH_RF69 RF69(RFM69_CS, RFM69_INT);
 RHReliableDatagram RF69Mgr(RF69, HOST_ADDRESS);
-uint8_t destAddr[] = {1, 2, 3, 4};
-int minVal = 265, maxVal = 402;
+uint8_t destAddr[4] = {
+  0, // FL
+  1, // BL
+  2, // FR
+  3  //BR
+};
+
+uint8_t effects[1] = {
+  17 // default
+};
+
+Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
+bool imuIdle = false;
 
 void setup() {
   Serial.begin(115200);
@@ -49,80 +61,116 @@ void setup() {
     Serial.println("setFrequency failed; using default");
   }
 
-  RF69.setTxPower(20, true); // range from 14-20 for power, 2nd arg must be true for 69HCW
+  RF69.setTxPower(20, true);  // range from 14-20 for power, 2nd arg must be true for 69HCW
 
   // The encryption key has to be the same as the one in the server
-  uint8_t key[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+  // uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+  //                   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
 
-  RF69.setEncryptionKey(key);
+  // RF69.setEncryptionKey(key);
 
   Serial.print("RFM69 radio @");
   Serial.print((int)RF69_FREQ);
   Serial.println(" MHz");
 
-  // IMU Initialization
-  Serial.println("Initializing IMU...");
-  Wire.begin();
-  Wire.beginTransmission(0x68);
-  Wire.write(0x6B);
-  Wire.write(0);
-  Wire.endTransmission(true);
-  Serial.println("Done.");
+  if(!bno.begin()) {
+    Serial.print("No BNO055 detected ... Check your wiring or I2C ADDR!");
+    while(1);
+  }
+  
+  delay(1000);
+  bno.setExtCrystalUse(true);
 }
 
 void loop() {
-  // IMU Readings
-  Wire.beginTransmission(0x68);
-  Wire.write(0x3B);
-  Wire.endTransmission(false);
-  Wire.requestFrom(0x68, 14, true);
+  sensors_event_t event;
+  bno.getEvent(&event);
 
-  int16_t AcX = Wire.read() << 8 | Wire.read();
-  int16_t AcY = Wire.read() << 8 | Wire.read();
-  int16_t AcZ = Wire.read() << 8 | Wire.read();
+  float roll = (float)event.orientation.y + ANGLE_CORRECTION_ROLL;
+  float pitch = wrapPitch((float)event.orientation.z) + ANGLE_CORRECTION_PITCH;
 
-  int16_t xAng = map(AcX, minVal, maxVal,-90 ,90);
-  int16_t yAng = map(AcY, minVal, maxVal,-90 ,90);
-  int16_t zAng = map(AcZ, minVal, maxVal,-90 ,90);
-  
-  int x = RAD_TO_DEG * (atan2(-yAng, -zAng) + PI) + ANGLE_OFFSET_X;
-  int y = RAD_TO_DEG * (atan2(-xAng, -zAng) + PI) + ANGLE_OFFSET_Y;
-  // int z = RAD_TO_DEG * (atan2(-yAng, -xAng) + PI);
+    Serial.print(F("Roll: "));
+  Serial.print(roll);
+  Serial.print(F(" Pitch :"));
+  Serial.println(pitch);
 
-  x = rotationWrap(x);
-  y = rotationWrap(y);
-  sendData(true, calculateVibrationPercentage(x));
-  sendData(false, calculateVibrationPercentage(y));
-  // char radiopacket[10] = "Hello";
-  // RF69Mgr.sendto((uint8_t *)radiopacket, strlen(radiopacket), 1);
+
+  sendData(deadzone(roll), deadzone(pitch));
+  delay(SAMPLERATE_DELAY_MS);
 }
 
-bool sendData(boolean x, int data) {
-  Serial.print(x ? "X: " : "Y: ");
-  Serial.println(data);
-  if (data == 0) return;
-  byte buff[1];
-  buff[0] = abs(data);
-  uint8_t addr = x ? (data > 0 ? destAddr[0] : destAddr[1]) : (data > 0 ? destAddr[2] : destAddr[3]) ;  
-  RF69Mgr.sendto(buff, 1, addr);
-}
+void sendData(float roll, float pitch) {
+  // Serial.print(F("Roll: "));
+  // Serial.print(roll);
+  // Serial.print(F(" Pitch :"));
+  // Serial.println(pitch);
 
-int calculateVibrationPercentage(int deg) {
-  if (abs(deg) <= ANGLE_DEADZONE) {
-    return 0;
+  // Simplified X logic (FL: 0, BL: 1, FR: 2, BR: 3), 1 or 2 vibrations at a time
+  if (roll != 0 && pitch != 0){
+    uint8_t addr[1];
+    if (roll > 0){
+      if (pitch > 0){
+        addr[0] = destAddr[3];
+      } else {
+        addr[0] = destAddr[1];
+      }
+    } else {
+      if (pitch > 0){
+        addr[0] = destAddr[2];
+      } else {
+        addr[0] = destAddr[0];
+      }
+    }
+
+    writeMotors(addr, 1);
+
+  } else if (roll != 0){
+      uint8_t addr[2]={0, 0};
+      if (roll > 0){
+        addr[0] = destAddr[1], addr[1] = destAddr[3];
+      } else {
+        addr[0] = destAddr[0], addr[1] = destAddr[2];
+      }
+
+      writeMotors(addr, 2);
+
+  } else if (pitch != 0) {
+      uint8_t addr[2]={0, 0};
+
+      if (pitch > 0){
+        addr[0] = destAddr[2], addr[1] = destAddr[3];
+      } else {
+        addr[0] = destAddr[0], addr[1] = destAddr[1];      
+      }
+
+      writeMotors(addr, 2);
+
+  } else if (!imuIdle) {
+    imuIdle = true;
+    writeMotors(destAddr, 4);
   }
-
-  int k = 1;
-  if (deg < 0) k = -1;
-  if(INVERT) k *= -1;
-
-  return k * min(abs(deg) - ANGLE_DEADZONE, MAX_ANGLE - ANGLE_DEADZONE) * 255/(MAX_ANGLE - ANGLE_DEADZONE);
 }
 
-int rotationWrap(int deg) {
-  if (deg > 180) {
-    return -1 * (360 - deg);
+void writeMotors(uint8_t activeMotors[], int num) {
+  imuIdle = false;
+  byte buff[1] = {effects[0]};
+
+  for (int i = 0; i < num; i++) {
+    RF69Mgr.sendto(buff, 1, activeMotors[i]);
+    // Serial.println("Writing to " + (String)activeMotors[i]);
   }
-  return deg;
+}
+
+float deadzone(float input) {
+  return abs(input) <= ANGLE_DEADZONE ? 0 : input;
+}
+
+float wrapPitch(float pitch) {
+  if (pitch > 0) {
+    return mapFloat(pitch, 180, 0, 0, 180);
+  } else return mapFloat(pitch, -180, 0, 0, -180);
+}
+
+float mapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }

@@ -1,0 +1,5 @@
+connect
+loadfile SAMD_clear_bootloader_protection.mot
+r
+loadbin bootloader-feather_m0-v3.15.0.bin,0
+loadfile SAMD_set_bootloader_protection_8k.mot
