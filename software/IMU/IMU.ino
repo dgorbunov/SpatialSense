@@ -18,7 +18,7 @@
 #define ANGLE_DEADZONE 3.50
 #define ANGLE_CORRECTION_ROLL 0.88
 #define ANGLE_CORRECTION_PITCH -0.81
-#define SAMPLERATE_DELAY_MS 30
+#define SAMPLERATE_DELAY_MS 5
 
 RH_RF69 RF69(RFM69_CS, RFM69_INT);
 RHReliableDatagram RF69Mgr(RF69, HOST_ADDRESS);
@@ -30,7 +30,7 @@ uint8_t destAddr[4] = {
 };
 
 uint8_t effects[1] = {
-  12 // 10 is lower frequency
+  10 // 12 is higher frequency
 };
 
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
