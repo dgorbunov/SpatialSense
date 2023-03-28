@@ -14,14 +14,11 @@
 #define HX711_DOUT 2
 #define HX711_SCK 5
 
-#define FULL_READING 427 // full glass reading
+#define FULL_READING 445 // full glass reading, 427 originally
 #define CUP_READING 200 // empty cup mass, actual 225
-#define APPROACHING_SCALE 0.88 // ratio of FULL_READING to start pulsing
 
 uint8_t effects[] = {
-  17, // approaching full
-  54, // full
-  0 // off
+  27
 };
 
 uint8_t destAddr[] = {
@@ -105,7 +102,7 @@ void loop() {
       float i = LoadCell.getData();
       newDataReady = 0;
       // Serial.print("Load_cell output val: ");
-      // Serial.println(i);
+      Serial.println(i);
 
       processScaleReading(i);
       t = millis();
@@ -129,21 +126,10 @@ void tare() {
 }
 
 void processScaleReading(int reading) {
-  if (reading > CUP_READING) {
-    stopSending = false; 
-
-    if (reading < APPROACHING_SCALE * FULL_READING) {
-      sendData(effects[0]);
-    } else if (reading < FULL_READING) {
-      sendData(effects[1]);
-    } else {
-      sendData(effects[2]);
-    }
-  } else {
-    if (!stopSending) {
-      stopSending = true;
-      sendData(effects[2]);
-    }
+  if (reading > CUP_READING && reading < FULL_READING && !stopSending) {
+    sendData(effects[0]);
+  } else if (reading >= FULL_READING) {
+    stopSending = true;
   }
 }
 
@@ -153,5 +139,6 @@ void sendData(int data) {
     RF69Manager.sendto(buff, 1, i);
   }
 
-  Serial.println("Sent " + data);
+  Serial.print("Sent ");
+  Serial.println(data);
 }

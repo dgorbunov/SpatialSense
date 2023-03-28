@@ -1,60 +1,11 @@
-#include <SPI.h>
-#include <RH_RF69.h>
-#include <RHReliableDatagram.h>
 #include <Wire.h>
 #include "Adafruit_DRV2605.h"
 
-#define HOST_ADDRESS 0
-
-#define RF69_FREQ 915.0
-#define RFM69_CS 8
-#define RFM69_INT 3
-#define RFM69_RST 4
-
-#define VIBRATION_TIMEOUT 100 // ms with no effect signal to turn off
-
-RH_RF69 rf69(RFM69_CS, RFM69_INT);
-RHReliableDatagram RF69Manager(rf69, HOST_ADDRESS);
-
 Adafruit_DRV2605 drv;
 
-uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
-uint8_t currentEffect = 0;
-unsigned long timer = 0;
-
 void setup() {
-  Serial.begin(115200);
-
-  pinMode(LED_BUILTIN, OUTPUT);     
-  pinMode(RFM69_RST, OUTPUT);
-  digitalWrite(RFM69_RST, LOW);
-
-  // Manual reset.
-  digitalWrite(RFM69_RST, HIGH);
-  delay(10);
-  digitalWrite(RFM69_RST, LOW);
-  delay(10);
-  
-  while (!RF69Manager.init()) {
-    Serial.println("RFM69 radio init failed. Trying again....");
-    delay(250);
-  }
-
-  Serial.println("RFM69 radio init OK!");
-  if (!rf69.setFrequency(RF69_FREQ)) {
-    Serial.println("setFrequency failed");
-  }
-
-  rf69.setTxPower(20, true);  // range from 14-20 for power, 2nd arg must be true for 69HCW
-
-  // The encryption key has to be the same as the one in the server
-  // uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-  //                   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-  // rf69.setEncryptionKey(key);
-
-  Serial.print("RFM69 radio @");
-  Serial.print((int)RF69_FREQ);
-  Serial.println(" MHz");
+  Serial.begin(9600);
+  // while (!Serial) {delay(1);}
 
   if (! drv.begin()) {
     Serial.println("Could not find DRV2605");
@@ -62,12 +13,11 @@ void setup() {
   }
 
   // autocal();
-  // drv.useLRA();
+  // autocal_fixed();
   nocal();
-  
+
   drv.selectLibrary(1);
-  drv.setMode(DRV2605_MODE_INTTRIG);
-  currentEffect = 0;
+  drv.setMode(DRV2605_MODE_REALTIME); 
 }
 
 void autocal() {
@@ -152,54 +102,75 @@ void autocal() {
   else Serial.println("FAILED");
 }
 
+void autocal_fixed() {
+  drv.useLRA();
+  drv.setMode(DRV2605_MODE_AUTOCAL);
+
+  // Set ERM, Brake Factor and loop gain
+  drv.writeRegister8(DRV2605_REG_FEEDBACK, 0xBA);
+  drv.writeRegister8(DRV2605_REG_CONTROL1, 0x93);
+  drv.writeRegister8(DRV2605_REG_CONTROL2, 0x35);
+  drv.writeRegister8(DRV2605_REG_CONTROL3, 0x8C);
+  drv.writeRegister8(DRV2605_REG_CONTROL4, 0x20);
+
+  // Set voltages
+  drv.writeRegister8(DRV2605_REG_RATEDV, 0x66);
+  drv.writeRegister8(DRV2605_REG_CLAMPV, 0x69);
+
+  // Set auto-calibration mode
+  drv.setMode(DRV2605_MODE_AUTOCAL);
+
+  // Start auto-calibration
+  drv.go();
+
+  int8_t go = 1;
+  int8_t i = 0;
+  const int8_t loop_delay = 100;
+  const int8_t timeout = 4000;
+
+  // Wait for autocalibration to finish
+  do {
+    go = drv.readRegister8(DRV2605_REG_GO);
+    delay(loop_delay);
+    ++i;
+  } while (go == 1 && i < timeout / loop_delay);
+
+  Serial.print("Autocal Result: ");
+  uint8_t DIAG_RESULT = (drv.readRegister8(0x00) & ( 1 << 3 )) >> 3;
+  if (!DIAG_RESULT) Serial.println("SUCCESS");
+  else Serial.println("FAILED");
+}
+
 void nocal() {
   drv.useLRA();
 }
 
+uint8_t rtp_index = 0;
+uint8_t rtp[] = {
+  0x30, 100, 0x32, 100, 
+  0x34, 100, 0x36, 100, 
+  0x38, 100, 0x3A, 100,
+  0x00, 100,
+  0x40, 200, 0x00, 100, 
+  0x40, 200, 0x00, 100, 
+  0x40, 200, 0x00, 100
+};
+
 void loop() {
-  // Wait for a message addressed to us from the client
-  uint8_t len = sizeof(buf);
-  uint8_t from;
-  if (RF69Manager.recvfrom(buf, &len, &from)) {
-    buf[len] = 0; // zero out remaining string
-    
-    Serial.print("Got packet from #"); Serial.print(from);
-    Serial.print(" [RSSI :");
-    Serial.print(rf69.lastRssi());
-    Serial.print("] : ");
-    Serial.print((char*)buf);
-    Serial.print(" ");
-    Serial.println((int)buf[0]);
 
-    if (currentEffect != (int)buf[0]) {
-      currentEffect = (int)buf[0];
-      drv.setWaveform(0, currentEffect);
-      // Serial.println("Netw");      
-    }
+  drv.setRealtimeValue(127);
+  Serial.println("hello!");
+  // delay(100);
 
-    timer = millis();
-  }
-
-  Serial.println(currentEffect);
-
-  if (millis() - timer >= VIBRATION_TIMEOUT) {
-    currentEffect = 0;
-    drv.setWaveform(0, 0);
-    // Serial.println("timeoput");
-  }
-
-  float bat_voltage = (analogRead(9) / 1023.0) * 6.6;
-  if (bat_voltage < 3.5) blinkAsync(300);
-
-  drv.go();
-}
-
-unsigned long ledTimer = 0;
-
-void blinkAsync(int delay) {
-  if (millis() - ledTimer > delay) {
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    Serial.println("Batt low!");
-    ledTimer = millis();
-  }  
+  // if (rtp_index < sizeof(rtp)/sizeof(rtp[0])) {
+  //   drv.setRealtimeValue(rtp[rtp_index]);
+  //   rtp_index++;
+  //   delay(rtp[rtp_index]);
+  //   rtp_index++;
+  // } else {
+  //   drv.setRealtimeValue(0x00);
+  //   delay(1000);
+  //   rtp_index = 0;
+  // }
+  
 }

@@ -15,12 +15,9 @@
 #define RFM69_RST 4
 
 // TO BE ADJUSTED
-#define ANGLE_DEADZONE 4.25
-#define ANGLE_CORRECTION_ROLL 3.50
-#define ANGLE_CORRECTION_PITCH -0.50
-
-#define INVERT false
-
+#define ANGLE_DEADZONE 3.50
+#define ANGLE_CORRECTION_ROLL 0.88
+#define ANGLE_CORRECTION_PITCH -0.81
 #define SAMPLERATE_DELAY_MS 30
 
 RH_RF69 RF69(RFM69_CS, RFM69_INT);
@@ -33,7 +30,7 @@ uint8_t destAddr[4] = {
 };
 
 uint8_t effects[1] = {
-  17 // default
+  12 // 10 is lower frequency
 };
 
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);
@@ -86,17 +83,29 @@ void loop() {
   sensors_event_t event;
   bno.getEvent(&event);
 
-  float roll = (float)event.orientation.y + ANGLE_CORRECTION_ROLL;
-  float pitch = wrapPitch((float)event.orientation.z) + ANGLE_CORRECTION_PITCH;
+  float roll = (float) -1 * event.orientation.y + ANGLE_CORRECTION_ROLL;
+  float pitch = wrapPitch((float) -1 * event.orientation.z) + ANGLE_CORRECTION_PITCH;
 
-    Serial.print(F("Roll: "));
+  Serial.print(F("Roll: "));
   Serial.print(roll);
   Serial.print(F(" Pitch :"));
   Serial.println(pitch);
 
+  float bat_voltage = (analogRead(9) / 1023.0) * 6.6;
+  if (bat_voltage < 3.5) blinkAsync(300);
 
   sendData(deadzone(roll), deadzone(pitch));
   delay(SAMPLERATE_DELAY_MS);
+}
+
+unsigned long ledTimer = 0;
+
+void blinkAsync(int delay) {
+  if (millis() - ledTimer > delay) {
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    Serial.println("Batt low!");
+    ledTimer = millis();
+  }  
 }
 
 void sendData(float roll, float pitch) {
@@ -110,15 +119,15 @@ void sendData(float roll, float pitch) {
     uint8_t addr[1];
     if (roll > 0){
       if (pitch > 0){
-        addr[0] = destAddr[3];
-      } else {
         addr[0] = destAddr[1];
+      } else {
+        addr[0] = destAddr[0];
       }
     } else {
       if (pitch > 0){
-        addr[0] = destAddr[2];
+        addr[0] = destAddr[3];
       } else {
-        addr[0] = destAddr[0];
+        addr[0] = destAddr[2];
       }
     }
 
@@ -127,9 +136,9 @@ void sendData(float roll, float pitch) {
   } else if (roll != 0){
       uint8_t addr[2]={0, 0};
       if (roll > 0){
-        addr[0] = destAddr[1], addr[1] = destAddr[3];
+        addr[0] = destAddr[0], addr[1] = destAddr[1];
       } else {
-        addr[0] = destAddr[0], addr[1] = destAddr[2];
+        addr[0] = destAddr[2], addr[1] = destAddr[3];
       }
 
       writeMotors(addr, 2);
@@ -138,16 +147,16 @@ void sendData(float roll, float pitch) {
       uint8_t addr[2]={0, 0};
 
       if (pitch > 0){
-        addr[0] = destAddr[2], addr[1] = destAddr[3];
+        addr[0] = destAddr[1], addr[1] = destAddr[3];
       } else {
-        addr[0] = destAddr[0], addr[1] = destAddr[1];      
+        addr[0] = destAddr[0], addr[1] = destAddr[2];      
       }
 
       writeMotors(addr, 2);
 
   } else if (!imuIdle) {
     imuIdle = true;
-    writeMotors(destAddr, 4);
+    // writeMotors(destAddr, 4);
   }
 }
 
